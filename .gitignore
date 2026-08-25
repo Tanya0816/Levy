@@ -13,7 +13,7 @@ docs/
 # Dotenv file
 .env
 
-lib/v4-hooks-public
+lib/v4-hooks-public/
 
 .github/
 
