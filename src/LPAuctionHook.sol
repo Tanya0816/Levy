@@ -2,7 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {BaseHook} from "v4-hooks-public/src/base/BaseHook.sol";
-import {ERC1155} from "solmate/src/tokens/ERC1155.sol";
+import {ERC1155} from "v4-hooks-public/src/tokens/ERC1155.sol";
 
 import {Currency} from "v4-hooks-public/types/Currency.sol";
 import {PoolKey} from "v4-hooks-public/src/PoolKey.sol";
@@ -42,6 +42,9 @@ contract LPAuctionHook is BaseHook {
     }
 
     mapping(PoolId => mapping(uint256  => mapping(address  => bytes32))) public commits;
+
+    event EpochStarted(PoolId indexed poolId, uint256 indexed epoch, uint256 epochStarted);
+    event PoolParamsSet(PoolId indexed PoolId, POolAuctionParams params);
     
     function getHookPermissions() 
     public
@@ -67,20 +70,57 @@ contract LPAuctionHook is BaseHook {
 
         });
     }
-    function _beforeSwap() {
+    function beforeSwap(
+        address sender,
+        PoolKey calldata key,
+        IPoolManager.SwapParams calldata,
+        bytes calldata
+    ) external override onlyPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
 
     }
 
-    function _afterAddLiquidity() {
+    function afterAddLiquidity(
+        address sender,
+        PoolKey calldata key,
+        IPoolManager.ModifyLiquidityParams calldata,
+        BalanceDelta delta,
+        bytes calldata
+    ) external override returns (bytes4, BalanceDelta) {
+
+        lastDepostiBlock[key.toId()][sender]=block.number;
+        return (this.afterAddLiquidity.selector, BalanceDelta({delta0: 0, delta1: 0}));
 
     }
 
     function commitBid() {
     }
 
-    function revealBid() {}
+    function revealBid() {
 
-    function startEpoch() {
+    }
+
+    function startEpoch(PoolKey calldata key) external {
+
+        PoolAuctionParams memory params = poolParams[key.toId()];
+        require(params.configured, "pool is not configured");
+
+        uint256 epoch = currentEpoch[poolId];
+        Auction storage prev = auctions[poolId][epoch];
+        require(epoch == 0 || block.timestamp >= prev.claimDeadline, "previous epoch is still active");
+        uint256 newEpoch = (epoch == 0 && prev.epochStart == 0) ? 0 : epoch + 1;
+        if (epoch != 0 || prev.epochStart != 0) {
+            currentEpoch[poolId] = newEpoch;
+        }
+        uint256 e = currentEpoch[poolId];
+
+        Auction storage a = auctions[poolId][e];
+        a.epochStart = block.timestamp;
+        a.commitDeadline = block.timestamp + params.commitWindow;
+        a.revealDeadline = a.commitDeadline + params.revealWindow;
+        a.claimDeadline = a.revealDeadline + params.claimWindow;
+
+        emit EpochStarted(poolId, e, a.epochStart);
+
     }
 
 }
