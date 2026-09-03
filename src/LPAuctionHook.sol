@@ -13,8 +13,35 @@ import {IPoolManager} from "v4-hooks-public/interfaces/IPoolManager.sol";
 import {Hooks} from "v4-hooks-public/libraries/Hooks.sol";
 
 contract LPAuctionHook is BaseHook {
+    using PoolIdLibrary for PoolKey;
 
-    mapping(PoolId => mapping(uint256 epoch => mapping(address bidder => bytes32 commitHash))) public commits;
+    struct PoolAuctionParams {
+        uint256 reservePrice;  //min acceptable winning bid
+        uint256 epochLength;  // auction cycle per second
+        uint256 commitWindow;
+        uint256 revealWindow;
+        uint256 claimWindow;
+        uint32 lpDistribution;
+    }
+    mapping(PoolId => PoolAuctionParams) public poolParams;
+
+    address public governer;
+    modifier onlyGoverner() {
+        require(msg.sender == governer, "not a governer");
+        _;
+    }
+
+    struct Auction {
+        uint256 epochStart;
+        uint256 commitDeadline;
+        uint256 revealDeadline;
+        uint256 claimDeadline;
+        address winner;
+        uint256 winningBid;
+        bool revealed;
+    }
+
+    mapping(PoolId => mapping(uint256  => mapping(address  => bytes32))) public commits;
     
     function getHookPermissions() 
     public
