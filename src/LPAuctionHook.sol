@@ -24,9 +24,9 @@ contract LPAuctionHook is BaseHook {
     {
         return Hooks.Permissions({
             beforeInitialize: false,
-            afterInitialize: true,
-            beforeAddLiquidity: true,
-            afterAddLiquidity: false,
+            afterInitialize: false,
+            beforeAddLiquidity: false,
+            afterAddLiquidity: true,
             beforeRemoveLiquidity: false,
             afterRemoveLiquidity:false,
             beforeSwap:true,
@@ -40,7 +40,20 @@ contract LPAuctionHook is BaseHook {
 
         });
     }
-    function _afterInitialize() {
+    function _beforeSwap() {
 
     }
+
+    function _afterAddLiquidity() {
+
+    }
+
+    function commitBid() {
+    }
+
+    function revealBid() {}
+
+    function startEpoch() {
+    }
+
 }
