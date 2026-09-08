@@ -50,11 +50,31 @@ contract LPAuctionHook is BaseHook {
         bool resolved;
     }
 
+    //poolId => epoch => bidder => commit hash
     mapping(PoolId => mapping(uint256  => mapping(address  => bytes32))) public commits;
+
+    //mapping poolid with epoch and auction state
+    mapping(PoolId => mapping(uint256 => Auction)) public auctions;
+
+    //mapping poolid with current epoch number
+    mapping(PoolId => uint256) public currentEpoch;
+
+    // getting last epoch block using poolid
+    mapping(PoolId => mapping(address => uint256)) public lastDepositBlock;
+
+    //getting amount details to claim 
+    mapping(PoolId => mapping(uint256 => mapping(address => uint256))) public claimableAmount;
+
+    //Events
 
     event EpochStarted(PoolId indexed poolId, uint256 indexed epoch, uint256 epochStarted);
     event PoolParamsSet(PoolId indexed PoolId, POolAuctionParams params);
+    event BidCommited(PoolId indexed poolId, uint256 indexed epoch, address indexed bidder);
     
+    constructor(IPoolManager _poolManager, address _governor) BaseHook(_poolManager) {
+        governor = _governor;
+    }
+
     function getHookPermissions() 
     public
     pure
@@ -79,6 +99,17 @@ contract LPAuctionHook is BaseHook {
 
         });
     }
+
+//   Governance Placeholder 
+    function setPoolParams(PoolKey calldata key, PoolAuctionParams calldata params) external onlyGovernor {
+        require(params.lpDistribution <= 10000 && params.noShowRefund <= 10000, "invalid");
+        require(params.commitWindow + params.revealWindow + params.claimWindow <= params.epochLength, "Windows exceed epoch");
+        PoolAuctionParams memory p = params;
+        p.confirmed = true;
+        poolParams[key.toId()] = p;
+        emit PoolParamsSet(key.toId(), p);
+    }
+
     function beforeSwap(
         address sender,
         PoolKey calldata key,
@@ -87,7 +118,8 @@ contract LPAuctionHook is BaseHook {
     ) external override onlyPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
 
     }
-
+    
+// Anti-JIT snapshot stamped whenever liquidity is added. 
     function afterAddLiquidity(
         address sender,
         PoolKey calldata key,
@@ -96,18 +128,12 @@ contract LPAuctionHook is BaseHook {
         bytes calldata
     ) external override returns (bytes4, BalanceDelta) {
 
-        lastDepostiBlock[key.toId()][sender]=block.number;
+        lastDepositBlock[key.toId()][sender]=block.number;
         return (this.afterAddLiquidity.selector, BalanceDelta({delta0: 0, delta1: 0}));
 
     }
 
-    function commitBid() {
-    }
-
-    function revealBid() {
-
-    }
-
+// Starting epoch 
     function startEpoch(PoolKey calldata key) external {
 
         PoolAuctionParams memory params = poolParams[key.toId()];
@@ -129,7 +155,25 @@ contract LPAuctionHook is BaseHook {
         a.claimDeadline = a.revealDeadline + params.claimWindow;
 
         emit EpochStarted(poolId, e, a.epochStart);
+    }
+
+//  Commit phase in auction   
+    function commitBid(PoolKey calldata key, bytes32 commitHash) external {
+        PoolId poolId = key.toId();
+        uint256 epoch = currentEpoch[poolId];
+        Auction storage  a = auctions[poolId][epoch];
+        require(a.epochStart != 0, "no active epoch ");
+        require(block.timestamp < a.commitDeadline, "commit window closed");
+
+        commits[poolId][epoch][msg.sender] = commitHash;
+        emit BidCommitted(poolId, epoch, msg.sender);
+    }
+
+// Reveal phase in auction 
+    function revealBid() {
 
     }
+
+
 
 }
