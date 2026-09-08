@@ -4,13 +4,16 @@ pragma solidity ^0.8.26;
 import {BaseHook} from "v4-hooks-public/src/base/BaseHook.sol";
 import {ERC1155} from "v4-hooks-public/src/tokens/ERC1155.sol";
 
-import {Currency} from "v4-hooks-public/types/Currency.sol";
+import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-hooks-public/types/BeforeSwapDelta.sol";
 import {PoolKey} from "v4-hooks-public/src/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-hooks-public/types/PoolId.sol";
-import {BalanceDelta} from "v4-hooks-public/types/BalanceDelta.sol";
+import {BalanceDelta, BalanceDeltaLibrary} from "v4-hooks-public/types/BalanceDelta.sol";
 import {SwapParams, ModifyLiquidityParams} from "v4-hooks-public/types/PoolOperation.sol";
 import {IPoolManager} from "v4-hooks-public/interfaces/IPoolManager.sol";
 import {Hooks} from "v4-hooks-public/libraries/Hooks.sol";
+
+// In thisnhook, Arbitrageurs bid via commit-reveal
+// The winner claims the bidding prize by submitting their onw swap within a claim window.
 
 contract LPAuctionHook is BaseHook {
     using PoolIdLibrary for PoolKey;
@@ -18,10 +21,13 @@ contract LPAuctionHook is BaseHook {
     struct PoolAuctionParams {
         uint256 reservePrice;  //min acceptable winning bid
         uint256 epochLength;  // auction cycle per second
-        uint256 commitWindow;
-        uint256 revealWindow;
-        uint256 claimWindow;
-        uint32 lpDistribution;
+        uint256 commitWindow; // subset of epochlength (in seconds)
+        uint256 revealWindow; //subset of epochlength, starts after commitwindow.
+        uint256 claimWindow; // for winner to submit their swap within give timelimit after revealwindow to claim their prize.
+        uint32 lpDistribution; // share successful winnning bid prize to LPs.
+        uint32 noShowRefund; // for case when the winner does not claim prize within the given time.
+        address settlementAsset; // winner got paid in after successfully claiming the prize.
+        bool configured;
     }
     mapping(PoolId => PoolAuctionParams) public poolParams;
 
@@ -31,6 +37,8 @@ contract LPAuctionHook is BaseHook {
         _;
     }
 
+    // Auction state - handled by pool and epoch to ensure cycles neven collide.
+
     struct Auction {
         uint256 epochStart;
         uint256 commitDeadline;
@@ -39,6 +47,7 @@ contract LPAuctionHook is BaseHook {
         address winner;
         uint256 winningBid;
         bool revealed;
+        bool resolved;
     }
 
     mapping(PoolId => mapping(uint256  => mapping(address  => bytes32))) public commits;
