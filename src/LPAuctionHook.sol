@@ -74,6 +74,7 @@ contract LPAuctionHook is BaseHook {
     event WinnerClaimed(PoolId poolId, uint256 indexed epoch, address winner);
     event WinnerForfeiteed(PoolId poolId, uint256 indexed epoch, address winner, uint256 refund, uint256 toLPs);
     event LPDistributed(PoolId indexed poolId, uint256 indexed epoch, uint256 toLPs);
+    event LPClaimed(PoolId indexed poolId, uint256 indexed epoch, address claimer, uint256 amount);
 
 
     constructor(IPoolManager _poolManager, address _governor) BaseHook(_poolManager) {
@@ -243,6 +244,26 @@ contract LPAuctionHook is BaseHook {
         emit LPDistributed(poolId, epoch,toLPs);
     }
 
+
+    function claimPayout(PoolKey calldata key, uint256 epoch) external {
+        PoolId poolId = key.toId();
+        Auction storage a = auctions[poolId][epoch];
+
+        require(a.epochStart != 0, "invalid epoch"); 
+        require(lastDepositBlock[poolId][msg.sender] != 0, "never deposited");
+        require(lastDepositBlock[poolId][msg.sender] < _epochStartBlock(poolId, epoch), "not eligible, epoch already started");
+        require(claimable[poolId][epoch][msg.sender] == 0, "already claimed");
+
+        uint256 amount = claimable[poolId][epoch][address(0)];
+        require(amount > 0, "nothing to claim");
+
+        claimable[poolId][epoch][msg.sender] = amount;
+        emit LPClaimed(poolId, epoch,msg.sender, amount);
+    }
+
+    function _epochStartBlock(PoolId poolId, uint256 epoch) internal view returns (uint256 ) {
+        return auctions[poolId][epoch].epochStart;
+    }
 
 
 }
