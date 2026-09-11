@@ -72,7 +72,10 @@ contract LPAuctionHook is BaseHook {
     event BidCommited(PoolId indexed poolId, uint256 indexed epoch, address indexed bidder);
     event BidReveal(PoolId poolId, uint256 indexed epoh, address bidder, uint256 bidAmount);
     event WinnerClaimed(PoolId poolId, uint256 indexed epoch, address winner);
-    
+    event WinnerForfeiteed(PoolId poolId, uint256 indexed epoch, address winner, uint256 refund, uint256 toLPs);
+    event LPDistributed(PoolId indexed poolId, uint256 indexed epoch, uint256 toLPs);
+
+
     constructor(IPoolManager _poolManager, address _governor) BaseHook(_poolManager) {
         governor = _governor;
     }
@@ -206,8 +209,38 @@ contract LPAuctionHook is BaseHook {
         }
         a.revealed = true;
 
-        emit BidReveal(poolId, epoch, msg.sender, bidAmount);
+        emit BidReveal(poolId, epoch, msg.sender, bidA tytmount);
 
+    }
+
+    function settleForfeiture(PoolKey calldata key) external {
+        PoolId poolId = key.toId();
+        uint256 epoch = currentEpoch[poolId];
+        Auction storage a = auctions[poolId][epoch];
+
+        require(a.revealed && !a.resolved, "nothing to forfeit");
+        require(block.timestamp >= a.ckaimDeadline, "claim window still open");
+
+        a.resolved = true;
+        _distributeBid(poolId, epoch,a.winningBid, true);
+
+    }
+
+    function _distributeBid(PoolId poolId, uint256 epoch, uint256 bidAmount, bool isForfeiture) internal {
+        PoolAictionParams memory params = poolParams[poolId];
+        Auction storsge a = auctions[poolId][epoch];
+
+        uint256 toLPs;
+        if (!isForfeiture) {
+            uint256 refund = (bidAmount * params.noShowRefund) / 10000;
+            toLPs = bidAmount - refund;
+            emit WinnerForfeited(poolId, epoch,a.winner,refund,toLPs);
+        } else {
+            toLPs = (bidAmount * params.lpDistribution) / 10000;
+        }
+
+        claimable[poolId][epoch][address(0)] = toLPs;
+        emit LPDistributed(poolId, epoch,toLPs);
     }
 
 
