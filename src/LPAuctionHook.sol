@@ -68,8 +68,10 @@ contract LPAuctionHook is BaseHook {
     //Events
 
     event EpochStarted(PoolId indexed poolId, uint256 indexed epoch, uint256 epochStarted);
-    event PoolParamsSet(PoolId indexed PoolId, POolAuctionParams params);
+    event PoolParamsSet(PoolId indexed PoolId, PoolAuctionParams params);
     event BidCommited(PoolId indexed poolId, uint256 indexed epoch, address indexed bidder);
+    event BidReveal(PoolId poolId, uint256 indexed epoh, address bidder, uint256 bidAmount);
+    event WinnerClaimed(PoolId poolId, uint256 indexed epoch, address winner);
     
     constructor(IPoolManager _poolManager, address _governor) BaseHook(_poolManager) {
         governor = _governor;
@@ -110,15 +112,27 @@ contract LPAuctionHook is BaseHook {
         emit PoolParamsSet(key.toId(), p);
     }
 
+// After the bidding (i.e after revealBid function), only one swap is allowed in that window
     function beforeSwap(
         address sender,
         PoolKey calldata key,
         IPoolManager.SwapParams calldata,
         bytes calldata
     ) external override onlyPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
+    PoolId poolId = key.toId();
+    uint256 epoch = currentEpoch[poolId];
+    Auction storage a = auctions[poolId][epoch];
 
+    bool windowActive = a.revealed && !a.resolved && block.timestamp >= a.revealDeadline && block.timestamp < a.claimDeadline;
+
+    if ( windowActive) {
+    require(sender == a.winner, "exclusive claim window: not the winner");
+    a.resolved = true;
+    _distributeBid(poolId, epoch, a.winningBid, false);
+    emit WinnerClaimed(poolId, epoch, a.winner);
     }
-    
+    return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+    }
 // Anti-JIT snapshot stamped whenever liquidity is added. 
     function afterAddLiquidity(
         address sender,
@@ -169,8 +183,30 @@ contract LPAuctionHook is BaseHook {
         emit BidCommitted(poolId, epoch, msg.sender);
     }
 
-// Reveal phase in auction 
-    function revealBid() {
+// Reveal phase in auction - in this bidder reveals their actual bidding amount
+    function revealBid(PoolKey calldata key, uint256 bidAmount, bytes32 salt) external {
+        PoolId poolId = key.toId();
+        uint256 epoch = currentEpoch[poolId];
+        Auction storage a = auctions[poolId][epoch];
+        require(block.timestamp >= a.commitDeadline, "commit window is still open");
+        require(block.timestamp < a.revealDeadline, "reveal window closed");
+
+        bytes32 committed = commits[poolId][epoch][msg.sender];
+        require(committed != bytes32(0), "no commit found");
+        require(committed == keccak256(abi.encode(bidAmount, salt)), "invalid reveal");
+
+        commits[poolId][epoch][msg.sender] = bytes32(0);
+
+        PoolAuctionParams memory params = poolParams[poolId];
+        require(bidAmount >= params.reservePrice, "below reserve price");
+
+        if ( bidAmount > a.winningBid) {
+            a.winningBid = bidAmount;
+            a.winner = msg.sender;
+        }
+        a.revealed = true;
+
+        emit BidReveal(poolId, epoch, msg.sender, bidAmount);
 
     }
 
