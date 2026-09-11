@@ -13,6 +13,7 @@ docs/
 # Dotenv file
 .env
 
-/lib/v4-hooks-public/
+lib/v4-hooks-public/
+lib/v4-core/
+lib/v4-periphery/
 
-remappings.txt
