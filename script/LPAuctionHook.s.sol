@@ -12,8 +12,7 @@ contract LPAuctionHookScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        auctionHook = new LPAuctionHook();
-
+       
         vm.stopBroadcast();
     }
 }

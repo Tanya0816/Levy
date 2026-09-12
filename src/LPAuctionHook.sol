@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {BaseHook} from "v4-hooks-public/src/base/BaseHook.sol";
+import {BaseHook} from "./BaseHook.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
@@ -79,7 +79,7 @@ contract LPAuctionHook is BaseHook {
         uint256 indexed epoch,
         uint256 epochStarted
     );
-    event PoolParamsSet(PoolId indexed PoolId, PoolAuctionParams params);
+    event PoolParamsSet(PoolId indexed poolId, PoolAuctionParams params);
     event BidCommited(
         PoolId indexed poolId,
         uint256 indexed epoch,
@@ -92,7 +92,7 @@ contract LPAuctionHook is BaseHook {
         uint256 bidAmount
     );
     event WinnerClaimed(PoolId poolId, uint256 indexed epoch, address winner);
-    event WinnerForfeiteed(
+    event WinnerForfeited(
         PoolId poolId,
         uint256 indexed epoch,
         address winner,
@@ -127,8 +127,8 @@ contract LPAuctionHook is BaseHook {
                 afterRemoveLiquidity: false,
                 beforeSwap: true,
                 afterSwap: false,
-                beforeDenote: false,
-                afterDenote: false,
+                beforeDonate: false,
+                afterDonate: false,
                 beforeSwapReturnDelta: false,
                 afterSwapReturnDelta: false,
                 afterAddLiquidityReturnDelta: false,
@@ -151,7 +151,7 @@ contract LPAuctionHook is BaseHook {
             "Windows exceed epoch"
         );
         PoolAuctionParams memory p = params;
-        p.confirmed = true;
+        p.configured = true;
         poolParams[key.toId()] = p;
         emit PoolParamsSet(key.toId(), p);
     }
@@ -196,17 +196,18 @@ contract LPAuctionHook is BaseHook {
         IPoolManager.ModifyLiquidityParams calldata,
         BalanceDelta delta,
         bytes calldata
-    ) external override returns (bytes4, BalanceDelta) {
+    ) external returns (bytes4, BalanceDelta) {
         lastDepositBlock[key.toId()][sender] = block.number;
         return (
-            this.afterAddLiquidity.selector,
-            BalanceDelta({delta0: 0, delta1: 0})
+            BaseHook.afterAddLiquidity.selector,
+            BalanceDeltaLibrary.ZERO_DELTA
         );
     }
 
     // Starting epoch
     function startEpoch(PoolKey calldata key) external {
-        PoolAuctionParams memory params = poolParams[key.toId()];
+        PoolId poolId = key.toId();
+        PoolAuctionParams memory params = poolParams[poolId];
         require(params.configured, "pool is not configured");
 
         uint256 epoch = currentEpoch[poolId];
@@ -239,7 +240,7 @@ contract LPAuctionHook is BaseHook {
         require(block.timestamp < a.commitDeadline, "commit window closed");
 
         commits[poolId][epoch][msg.sender] = commitHash;
-        emit BidCommitted(poolId, epoch, msg.sender);
+        emit BidCommited(poolId, epoch, msg.sender);
     }
 
     // Reveal phase in auction - in this bidder reveals their actual bidding amount
@@ -284,7 +285,7 @@ contract LPAuctionHook is BaseHook {
         Auction storage a = auctions[poolId][epoch];
 
         require(a.revealed && !a.resolved, "nothing to forfeit");
-        require(block.timestamp >= a.ckaimDeadline, "claim window still open");
+        require(block.timestamp >= a.claimDeadline, "claim window still open");
 
         a.resolved = true;
         _distributeBid(poolId, epoch, a.winningBid, true);
@@ -308,7 +309,7 @@ contract LPAuctionHook is BaseHook {
             toLPs = (bidAmount * params.lpDistribution) / 10000;
         }
 
-        claimable[poolId][epoch][address(0)] = toLPs;
+        claimableAmount[poolId][epoch][address(0)] = toLPs;
         emit LPDistributed(poolId, epoch, toLPs);
     }
 
@@ -323,12 +324,15 @@ contract LPAuctionHook is BaseHook {
                 _epochStartBlock(poolId, epoch),
             "not eligible, epoch already started"
         );
-        require(claimable[poolId][epoch][msg.sender] == 0, "already claimed");
+        require(
+            claimableAmount[poolId][epoch][msg.sender] == 0,
+            "already claimed"
+        );
 
-        uint256 amount = claimable[poolId][epoch][address(0)];
+        uint256 amount = claimableAmount[poolId][epoch][address(0)];
         require(amount > 0, "nothing to claim");
 
-        claimable[poolId][epoch][msg.sender] = amount;
+        claimableAmount[poolId][epoch][msg.sender] = amount;
         emit LPClaimed(poolId, epoch, msg.sender, amount);
     }
 
