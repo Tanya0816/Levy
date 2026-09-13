@@ -50,9 +50,9 @@ contract DeloyLPHook is Script {
 
     function mineHookAddress(
         address deployer,
-        uint256 flags,
+        uint160 flags,
         bytes memory constructorArgs
-    ) internal pure returns (address predictedAddress, bytes salt) {
+    ) internal view returns (address predictedAddress, bytes32 salt) {
         return
             HookMiner.find(
                 deployer,
