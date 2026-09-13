@@ -2,23 +2,23 @@
 pragma solidity ^0.8.13;
 
 import {Test, console2} from "forge-std/Test.sol";
-import {IPoolManager} from "@uniswap/v4-core/src.interfaces/IPoolManager.sol";
-import {PoolManager} from "@uinswap/v4-core/PoolManager.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId/sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
-import {TickMath} from "@uniswap/v4-core/libraries/TickMath.sol";
-import {PoolSwapTest} from "@uniswap/v4-core/test/PoolSwapTest.sol";
-import {PoolModifyLiquidityTest} from "@uniswap/v4-core/test/PoolModifyLiquidityTest.sol";
-
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
+import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
+import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {LPAuctionHook} from "../src/LPAuctionHook.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
 contract LPAuctionHookTest is Test {
-    using PoolIdLibrary for POolKey;
+    using PoolIdLibrary for PoolKey;
 
     PoolManager manager;
-    LPAuctionHook  hook;
+    LPAuctionHook hook;
     PoolSwapTest swapRouter;
     PoolModifyLiquidityTest modifyLiquidityRouter;
 
@@ -31,26 +31,30 @@ contract LPAuctionHookTest is Test {
     address lp1 = makeAddr("lp1");
     address arbA = makeAddr("arbitrageurA");
     address arbB = makeAddr("arbitrageurB");
-    
+
     uint256 constant RESERVE_PRICE = 1 ether;
     uint256 constant COMMIT_WINDOW = 10;
     uint256 constant REVEAL_WINDOW = 10;
     uint256 constant CLAIM_WINDOW = 20;
-    uint256 constant EPOCH_LENGTH = COMMIT_WINDOW + REVEAL_WINDOW + CLAIM_WINDOW;
+    uint256 constant EPOCH_LENGTH =
+        COMMIT_WINDOW + REVEAL_WINDOW + CLAIM_WINDOW;
 
     function setUp() public {
         manager = new PoolManager(address(this));
         swapRouter = new PoolSwapTest(manager);
         modifyLiquidityRouter = new PoolModifyLiquidityTest(manager);
 
-         uint160 flags = uint160(Hooks.AFTER_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG);
+        uint160 flags = uint160(
+            Hooks.AFTER_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG
+        );
         address hookAddress = address(flags ^ (0x4444 << 144)); // arbitrary high bits to dodge collisions, low bits preserved
         deployCodeTo(
-            "LPGovernedAuctionHook.sol:LPGovernedAuctionHook", abi.encode(manager, governor), hookAddress
+            "LPAuctionHook.sol:LPAuctionHook",
+            abi.encode(manager, governor),
+            hookAddress
         );
-        hook = LPGovernedAuctionHook(hookAddress);
+        hook = LPAuctionHook(hookAddress);
 
-        
         // Two mock tokens, sorted so currency0 < currency1 as v4 requires.
         MockERC20 a = new MockERC20("Token A", "A");
         MockERC20 b = new MockERC20("Token B", "B");
@@ -78,59 +82,59 @@ contract LPAuctionHookTest is Test {
         vm.prank(governor);
         hook.setPoolParams(
             poolKey,
-            LPGovernedAuctionHook.PoolAuctionParams({
+            LPAuctionHook.PoolAuctionParams({
                 reservePrice: RESERVE_PRICE,
                 epochLength: EPOCH_LENGTH,
                 commitWindow: COMMIT_WINDOW,
                 revealWindow: REVEAL_WINDOW,
                 claimWindow: CLAIM_WINDOW,
-                lpDistributionBps: 9000,
-                noShowRefundBps: 700,
+                lpDistribution: 9000,
+                noShowRefund: 700,
                 settlementAsset: address(token0),
                 configured: false // ignored on write, contract sets this true itself
             })
         );
     }
 
-     function test_onlyGovernorCanSetParams() public {
+    function test_onlyGovernorCanSetParams() public {
         vm.expectRevert("not governor");
         hook.setPoolParams(
             poolKey,
-            LPGovernedAuctionHook.PoolAuctionParams({
+            LPAuctionHook.PoolAuctionParams({
                 reservePrice: 1,
                 epochLength: 1,
                 commitWindow: 0,
                 revealWindow: 0,
                 claimWindow: 1,
-                lpDistributionBps: 0,
-                noShowRefundBps: 0,
+                lpDistribution: 0,
+                noShowRefund: 0,
                 settlementAsset: address(0),
                 configured: false
             })
         );
     }
 
-     function test_paramsRejectWindowsExceedingEpoch() public {
+    function test_paramsRejectWindowsExceedingEpoch() public {
         vm.prank(governor);
         vm.expectRevert("windows exceed epoch");
         hook.setPoolParams(
             poolKey,
-            LPGovernedAuctionHook.PoolAuctionParams({
+            LPAuctionHook.PoolAuctionParams({
                 reservePrice: 1,
                 epochLength: 5,
                 commitWindow: 3,
                 revealWindow: 3,
                 claimWindow: 3,
-                lpDistributionBps: 9000,
-                noShowRefundBps: 700,
+                lpDistribution: 9000,
+                noShowRefund: 700,
                 settlementAsset: address(token0),
                 configured: false
             })
         );
     }
 
- // Auction lifecycle — happy path
-  function test_fullAuctionCycle_winnerClaimsSuccessfully() public {
+    // Auction lifecycle — happy path
+    function test_fullAuctionCycle_winnerClaimsSuccessfully() public {
         hook.startEpoch(poolKey);
         uint256 epoch = hook.currentEpoch(poolId);
 
@@ -153,7 +157,10 @@ contract LPAuctionHookTest is Test {
         vm.prank(arbB);
         hook.revealBid(poolKey, bidB, saltB);
 
-        (,,,, address winner, uint256 winningBid,,) = hook.auctions(poolId, epoch);
+        (, , , , address winner, uint256 winningBid, , ) = hook.auctions(
+            poolId,
+            epoch
+        );
         assertEq(winner, arbB, "highest bidder should be recorded winner");
         assertEq(winningBid, bidB);
 
@@ -172,15 +179,21 @@ contract LPAuctionHookTest is Test {
                 amountSpecified: -1 ether,
                 sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
             }),
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            PoolSwapTest.TestSettings({
+                takeClaims: false,
+                settleUsingBurn: false
+            }),
             ""
         );
 
-        (,,,,,,, bool resolved) = hook.auctions(poolId, epoch);
-        assertTrue(resolved, "auction should be marked resolved after winner claims");
+        (, , , , , , , bool resolved) = hook.auctions(poolId, epoch);
+        assertTrue(
+            resolved,
+            "auction should be marked resolved after winner claims"
+        );
     }
-   
-   function test_nonWinnerCannotSwapDuringExclusiveWindow() public {
+
+    function test_nonWinnerCannotSwapDuringExclusiveWindow() public {
         hook.startEpoch(poolKey);
 
         bytes32 saltB = keccak256("salt-b");
@@ -206,12 +219,15 @@ contract LPAuctionHookTest is Test {
                 amountSpecified: -1 ether,
                 sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
             }),
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            PoolSwapTest.TestSettings({
+                takeClaims: false,
+                settleUsingBurn: false
+            }),
             ""
         );
     }
 
-//    Commit-reveal security properties
+    //    Commit-reveal security properties
 
     function test_revealHijack_wrongSenderReverts() public {
         hook.startEpoch(poolKey);
@@ -242,6 +258,4 @@ contract LPAuctionHookTest is Test {
         vm.expectRevert("below reserve price");
         hook.revealBid(poolKey, lowBid, salt);
     }
-
-    
 }
