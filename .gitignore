@@ -12,7 +12,8 @@ docs/
 
 # Dotenv file
 .env
-
+cache/
+broadcast/
 lib/v4-hooks-public/
 lib/v4-core/
 lib/v4-periphery/

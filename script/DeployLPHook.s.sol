@@ -8,9 +8,9 @@ import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {LPAuctionHook} from "../src/LPAuctionHook.sol";
 import {HookMiner} from "./HookMiner.sol";
 
-contract DeloyLPHook is Script {
+contract DeployLPHook is Script {
     address constant CREATE2_DEPLOYER =
-        0x276be70FC7dBAE8Bfa01CF80F374db7b4D1C1dfC;
+        0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
     function run() external returns (LPAuctionHook hook, IPoolManager manager) {
         address governor = vm.envOr("GOVERNOR", msg.sender);

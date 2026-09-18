@@ -17,10 +17,10 @@ abstract contract BaseHook is IHooks {
     error NotPoolManager();
     error HookNotImplemented();
 
-    IPoolManager public immutable poolManager;
+    IPoolManager public immutable POOL_MANAGER;
 
     constructor(IPoolManager _poolManager) {
-        poolManager = _poolManager;
+        POOL_MANAGER = _poolManager;
         Hooks.validateHookPermissions(
             IHooks(address(this)),
             getHookPermissions()
@@ -28,7 +28,7 @@ abstract contract BaseHook is IHooks {
     }
 
     modifier onlyPoolManager() {
-        if (msg.sender != address(poolManager)) revert NotPoolManager();
+        if (msg.sender != address(POOL_MANAGER)) revert NotPoolManager();
         _;
     }
 
@@ -72,9 +72,9 @@ abstract contract BaseHook is IHooks {
         address,
         PoolKey calldata,
         IPoolManager.ModifyLiquidityParams calldata,
-        BalanceDelta,
-        BalanceDelta,
-        bytes calldata
+        BalanceDelta, 
+        BalanceDelta,   
+        bytes calldata    
     ) external virtual returns (bytes4, BalanceDelta) {
         revert HookNotImplemented();
     }
@@ -117,7 +117,7 @@ abstract contract BaseHook is IHooks {
     ) external virtual returns (bytes4, int128) {
         revert HookNotImplemented();
     }
-
+    
     function beforeDonate(
         address,
         PoolKey calldata,
@@ -127,7 +127,7 @@ abstract contract BaseHook is IHooks {
     ) external virtual returns (bytes4) {
         revert HookNotImplemented();
     }
-
+    
     function afterDonate(
         address,
         PoolKey calldata,
